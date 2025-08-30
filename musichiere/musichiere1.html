@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>🎵 Musichiere</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="manifest" href="manifest.json">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js')
+        .then(() => console.log("✅ Service Worker registrato"))
+        .catch(err => console.error("❌ Errore Service Worker:", err));
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f4f8;
+      padding: 30px;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      font-size: 36px;
+      margin-bottom: 30px;
+    }
+    .section {
+      margin-bottom: 20px;
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 10px;
+    }
+    select, input {
+      width: 100%;
+      font-size: 16px;
+      margin-top: 5px;
+      margin-bottom: 15px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-right: 10px;
+      border: none;
+      border-radius: 4px;
+      background-color: #0078d4;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #005fa3;
+    }
+    #output {
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+      font-size: 18px;
+      border-radius: 4px;
+    }
+    #songTools {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎵 Musichiere</h1>
+
+  <div class="section">
+    <label for="songSelector">🔍 Seleziona una canzone:</label>
+    <select id="songSelector" onchange="loadSong(this.value)">
+      <option value="">-- Seleziona --</option>
+    </select>
+  </div>
+
+  <div class="section" id="songTools">
+    <label for="fromKey">🎼 Tonalità originale:</label>
+    <select id="fromKey">
+      <option>Do</option><option>Do#</option><option>Re</option><option>Re#</option>
+      <option>Mi</option><option>Fa</option><option>Fa#</option><option>Sol</option>
+      <option>Sol#</option><option>La</option><option>La#</option><option>Si</option>
+    </select>
+
+    <label for="toKey">🎯 Tonalità desiderata:</label>
+    <select id="toKey">
+      <option>Do</option><option>Do#</option><option>Re</option><option>Re#</option>
+      <option>Mi</option><option>Fa</option><option>Fa#</option><option>Sol</option>
+      <option>Sol#</option><option>La</option><option>La#</option><option>Si</option>
+    </select>
+
+    <button onclick="transposeByKey()">Trasponi</button>
+
+    <h3>🎶 Accordi trasposti:</h3>
+    <pre id="output"></pre>
+
+    <label for="speed">📜 Velocità scroll (px/sec):</label>
+    <input type="number" id="speed" value="30">
+
+    <button onclick="startScroll()">Avvia scroll</button>
+    <button onclick="stopScroll()">Ferma scroll</button>
+  </div>
+
+  <script>
+    const baseChords = ['do', 'do#', 're', 're#', 'mi', 'fa', 'fa#', 'sol', 'sol#', 'la', 'la#', 'si'];
+    const enharmonics = {
+      'reb': 'do#', 'mib': 're#', 'solb': 'fa#', 'lab': 'sol#', 'sib': 'la#',
+      'cb': 'si', 'fb': 'mi', 'e#': 'fa', 'b#': 'do'
+    };
+
+    const songs = {
+      "La Strada": `Do Fa Sol Do
+Cammino piano sotto il cielo blu
+
+Lam Rem Sol Do
+La notte arriva e porta via con sé
+
+Fa Sol Do
+Tutti i sogni che ho fatto per te`,
+
+      "Notte Blu": `Sol Re Do Sol
+La strada corre sotto i miei piedi
+
+Lam Mim Re Sol
+E il vento canta insieme a me
+
+Do Re Sol
+Portami via dove il cuore va`
+    };
+
+    let scrollInterval = null;
+
+    function populateSongList() {
+      const selector = document.getElementById('songSelector');
+      selector.innerHTML = '<option value="">-- Seleziona --</option>';
+      for (let title in songs) {
+        const option = document.createElement('option');
+        option.value = title;
+        option.textContent = title;
+        selector.appendChild(option);
+      }
+    }
+
+    function loadSong(title) {
+      if (!title) {
+        document.getElementById('songTools').style.display = 'none';
+        document.getElementById('output').textContent = '';
+        stopScroll();
+        return;
+      }
+      document.getElementById('songTools').style.display = 'block';
+      document.getElementById('output').textContent = songs[title];
+      stopScroll();
+    }
+
+    function normalizeChord(chord) {
+      return enharmonics[chord.toLowerCase()] || chord.toLowerCase();
+    }
+
+    function transposeSingleChord(chord, steps) {
+      const match = chord.match(/^([a-zA-Z#b]+)([^\/\s]*)$/);
+      if (!match) return chord;
+      let [_, root, suffix] = match;
+      root = normalizeChord(root);
+      const index = baseChords.indexOf(root);
+      if (index === -1) return chord;
+      const newIndex = (index + steps + baseChords.length) % baseChords.length;
+      const newRoot = baseChords[newIndex];
+      return capitalize(newRoot) + suffix;
+    }
+
+    function transposeLine(line, steps) {
+      return line.replace(/\b([a-zA-Z#b]+[^\/\s]*)(\/[a-zA-Z#b]+[^\/\s]*)?\b/g, (match) => {
+        if (match.includes('/')) {
+          const [main, bass] = match.split('/');
+          return transposeSingleChord(main, steps) + '/' + transposeSingleChord(bass, steps);
+        }
+        return transposeSingleChord(match, steps);
+      });
+    }
+
+    function transposeByKey() {
+      const fromKey = document.getElementById('fromKey').value;
+      const toKey = document.getElementById('toKey').value;
+      const steps = baseChords.indexOf(toKey.toLowerCase()) - baseChords.indexOf(fromKey.toLowerCase());
+      const original = document.getElementById('output').textContent;
+      const transposed = transposeLine(original, steps);
+      document.getElementById('output').textContent = transposed;
+      document.getElementById('output').scrollTop = 0;
+    }
+
+    function capitalize(str) {
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    function startScroll() {
+      const output = document.getElementById('output');
+      const speed = parseInt(document.getElementById('speed').value);
+      stopScroll();
+      scrollInterval = setInterval(() => {
+        output.scrollTop += 1;
+        if (output.scrollTop >= output.scrollHeight - output.clientHeight) {
+          stopScroll();
+        }
+      }, 1000 / speed);
+    }
+
+    function stopScroll() {
+      clearInterval(scrollInterval);
+    }
+
+    populateSongList();
+  </script>
+</body>
+</html>
